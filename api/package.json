@@ -1,0 +1,8 @@
+{
+  "name": "synapse-api",
+  "version": "1.0.0",
+  "dependencies": {
+    "@google/genai": "^1.20.0",
+    "@vercel/node": "^3.0.0"
+  }
+}
