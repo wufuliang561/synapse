@@ -1,0 +1,5 @@
+{
+  "name": "Synapse",
+  "description": "A web application for mind mapping and brainstorming, allowing users to organize thoughts in a canvas view and dive into conversations in a chat view.",
+  "requestFramePermissions": []
+}
