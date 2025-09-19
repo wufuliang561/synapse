@@ -42,9 +42,19 @@ const BranchNodeComponent: React.FC<BranchNodeProps> = ({ data, selected }) => {
 
       {/* 分支标题 */}
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-semibold text-slate-800 truncate flex-1">
-          {data.name}
-        </h4>
+        <div className="flex items-center gap-1 flex-1 min-w-0">
+          <h4 className="text-sm font-semibold text-slate-800 truncate">
+            {data.name}
+          </h4>
+          {data.systemPrompt && (
+            <div
+              className="w-3 h-3 flex-shrink-0 text-slate-600"
+              title="Has custom system prompt"
+            >
+              📝
+            </div>
+          )}
+        </div>
         {data.isCurrentBranch && (
           <div className="w-2 h-2 bg-blue-500 rounded-full ml-2 flex-shrink-0"></div>
         )}

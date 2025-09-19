@@ -7,6 +7,7 @@ interface ChatViewProps {
   currentBranch: BranchNode | null;
   onSendMessage: (content: string) => void;
   onCreateBranch: (branchName: string, sourceBranchId: string, upToMessageId?: string) => void;
+  onUpdateSystemPrompt: (branchId: string, systemPrompt: string) => Promise<void>;
 }
 
 const MessageComponent: React.FC<{ message: Message; onBranch: (messageId: string) => void }> = ({ message, onBranch }) => {
@@ -41,12 +42,22 @@ const MessageComponent: React.FC<{ message: Message; onBranch: (messageId: strin
   );
 };
 
-const ChatView: React.FC<ChatViewProps> = ({ currentBranch, onSendMessage, onCreateBranch }) => {
+const ChatView: React.FC<ChatViewProps> = ({ currentBranch, onSendMessage, onCreateBranch, onUpdateSystemPrompt }) => {
   const [inputValue, setInputValue] = useState('');
   const [isBranchModalOpen, setBranchModalOpen] = useState(false);
   const [selectedMessageIdForBranch, setSelectedMessageIdForBranch] = useState<string | null>(null);
+  const [showSystemPromptEditor, setShowSystemPromptEditor] = useState(false);
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [isSystemPromptSaving, setIsSystemPromptSaving] = useState(false);
 
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
+
+  // Sync system prompt when branch changes
+  useEffect(() => {
+    if (currentBranch) {
+      setSystemPrompt(currentBranch.systemPrompt || '');
+    }
+  }, [currentBranch?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -72,24 +83,105 @@ const ChatView: React.FC<ChatViewProps> = ({ currentBranch, onSendMessage, onCre
     setSelectedMessageIdForBranch(null);
   };
 
+  const handleSaveSystemPrompt = async () => {
+    if (!currentBranch) return;
+
+    setIsSystemPromptSaving(true);
+    try {
+      await onUpdateSystemPrompt(currentBranch.id, systemPrompt);
+    } catch (error) {
+      console.error('Failed to save system prompt:', error);
+      // TODO: Show error message to user
+    } finally {
+      setIsSystemPromptSaving(false);
+    }
+  };
+
+  const hasSystemPromptChanged = currentBranch?.systemPrompt !== systemPrompt;
+
   return (
     <div className="flex flex-col h-full bg-slate-50">
       {/* 分支信息头部 - 只在有分支时显示 */}
       {currentBranch && (
-        <div className="p-4 border-b border-slate-200 bg-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-800">{currentBranch.name}</h3>
-              <p className="text-sm text-slate-500">{currentBranch.messages.length} messages</p>
+        <div className="border-b border-slate-200 bg-white">
+          <div className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800">{currentBranch.name}</h3>
+                <p className="text-sm text-slate-500">{currentBranch.messages.length} messages</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowSystemPromptEditor(!showSystemPromptEditor)}
+                  className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    showSystemPromptEditor
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  📝 System Prompt
+                  {currentBranch.systemPrompt && <span className="w-2 h-2 bg-blue-500 rounded-full"></span>}
+                </button>
+                <button
+                  onClick={() => handleOpenBranchModal()}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                >
+                  <SparklesIcon className="w-4 h-4 text-yellow-500" />
+                  Create Branch
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => handleOpenBranchModal()}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-            >
-              <SparklesIcon className="w-4 h-4 text-yellow-500" />
-              Create Branch
-            </button>
           </div>
+
+          {/* System Prompt Editor */}
+          {showSystemPromptEditor && (
+            <div className="p-4 bg-slate-50 border-t border-slate-200">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-slate-700">
+                    System Prompt for "{currentBranch.name}"
+                  </label>
+                  {hasSystemPromptChanged && (
+                    <span className="text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded">
+                      Modified
+                    </span>
+                  )}
+                </div>
+                <textarea
+                  value={systemPrompt}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
+                  placeholder="Enter a system prompt to guide the AI's behavior for this branch..."
+                  className="w-full h-24 p-3 text-sm border border-slate-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-slate-500">
+                    {systemPrompt.length} characters
+                    {currentBranch.systemPrompt && !systemPrompt && (
+                      <span className="ml-2 text-orange-600">(will be removed)</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setSystemPrompt(currentBranch.systemPrompt || '');
+                      }}
+                      disabled={!hasSystemPromptChanged}
+                      className="px-3 py-1 text-xs text-slate-600 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Reset
+                    </button>
+                    <button
+                      onClick={handleSaveSystemPrompt}
+                      disabled={!hasSystemPromptChanged || isSystemPromptSaving}
+                      className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSystemPromptSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

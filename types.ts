@@ -12,6 +12,7 @@ export interface BranchNode {
   parentId: string | null; // 父分支ID
   messages: Message[]; // 该分支内的所有消息
   position: { x: number; y: number };
+  systemPrompt?: string; // System prompt for this branch
   isNew?: boolean; // For highlighting new branches
   createdAt: string;
 }

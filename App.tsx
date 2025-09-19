@@ -1,317 +1,469 @@
-import React, { useState, useMemo } from 'react';
-import { GoogleGenAI } from '@google/genai';
+import React, { useState, useMemo, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatView from './components/ChatView';
 import CanvasView from './components/CanvasView';
-import { MOCK_TOPICS } from './constants';
+import ModelSelector from './components/ModelSelector';
+import type { ModelKey } from './components/ModelSelector';
+import { ProtectedRoute } from './components/Auth/ProtectedRoute';
+import { useAuth } from './components/Auth/AuthProvider';
+import { topicsService } from './services/topics.service';
+import { branchesService } from './services/branches.service';
+import { messagesService } from './services/messages.service';
 import type { Topic, Message, BranchNode } from './types';
+import type { TopicWithBranches } from './services/topics.service';
 import { ChevronLeftIcon } from './components/icons';
 
-// FIX: Initialize GoogleGenAI with a named apiKey parameter as per guidelines.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 const App: React.FC = () => {
-  const [topics, setTopics] = useState<Topic[]>(MOCK_TOPICS);
-  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(MOCK_TOPICS[0]?.id || null);
-  const [view, setView] = useState<'chat' | 'canvas'>('canvas'); // 默认显示画布
+  const { user, signOut } = useAuth();
+  const [topics, setTopics] = useState<TopicWithBranches[]>([]);
+  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
+  const [view, setView] = useState<'chat' | 'canvas'>('canvas');
   const [layout, setLayout] = useState<'horizontal' | 'vertical'>('horizontal');
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<ModelKey>('deepseek/deepseek-chat-v3.1');
+  const [branchMessages, setBranchMessages] = useState<Record<string, Message[]>>({});
+
+  // Load topics when user is authenticated
+  useEffect(() => {
+    if (user) {
+      loadTopics();
+    }
+  }, [user]);
+
+  const loadTopics = async () => {
+    if (!user) return;
+
+    try {
+      setLoading(true);
+      const userTopics = await topicsService.getTopics(user.id);
+      setTopics(userTopics);
+
+      // Select first topic if none selected
+      if (userTopics.length > 0 && !selectedTopicId) {
+        setSelectedTopicId(userTopics[0].id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load topics');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Convert database message to app format
+  const convertMessage = (dbMessage: any): Message => ({
+    id: dbMessage.id,
+    author: dbMessage.author === 'assistant' ? 'ai' : dbMessage.author,
+    content: dbMessage.content,
+    timestamp: new Date(dbMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  });
+
+  // Load messages for a specific branch
+  const loadBranchMessages = async (branchId: string): Promise<Message[]> => {
+    try {
+      const dbMessages = await messagesService.getMessages(branchId);
+      return dbMessages.map(convertMessage);
+    } catch (err) {
+      console.error('Failed to load branch messages:', err);
+      return [];
+    }
+  };
 
   const selectedTopic = useMemo(() => {
     return topics.find(t => t.id === selectedTopicId);
   }, [topics, selectedTopicId]);
 
-  // 获取当前选中的分支
-  const currentBranch = useMemo(() => {
-    if (!selectedTopic || !selectedTopic.currentBranchId) return null;
-    return selectedTopic.branches.find(b => b.id === selectedTopic.currentBranchId);
-  }, [selectedTopic]);
-
-  const handleCreateTopic = () => {
-    const newTopicId = `topic-${Date.now()}`;
-    const newTopic: Topic = {
-      id: newTopicId,
-      name: `New Topic ${topics.length + 1}`,
-      branches: [],
-      currentBranchId: null,
+  // Load messages when current branch changes
+  useEffect(() => {
+    const loadCurrentBranchMessages = async () => {
+      if (selectedTopic?.current_branch_id) {
+        const messages = await loadBranchMessages(selectedTopic.current_branch_id);
+        setBranchMessages(prev => ({
+          ...prev,
+          [selectedTopic.current_branch_id!]: messages
+        }));
+      }
     };
-    setTopics(prev => [...prev, newTopic]);
-    setSelectedTopicId(newTopicId);
-    setView('chat');
+
+    loadCurrentBranchMessages();
+  }, [selectedTopic?.current_branch_id]);
+
+  // Convert Supabase data to app format
+  const currentBranch = useMemo(() => {
+    if (!selectedTopic || !selectedTopic.current_branch_id) return null;
+    const branch = selectedTopic.branches.find(b => b.id === selectedTopic.current_branch_id);
+    if (!branch) return null;
+
+    // Get messages for this branch
+    const messages = branchMessages[selectedTopic.current_branch_id] || [];
+
+    // Convert to app format
+    return {
+      id: branch.id,
+      name: branch.name,
+      parentId: branch.parent_id,
+      messages: messages,
+      position: branch.position as { x: number; y: number },
+      systemPrompt: branch.system_prompt,
+      createdAt: branch.created_at
+    } as BranchNode;
+  }, [selectedTopic, branchMessages]);
+
+  const handleCreateTopic = async () => {
+    if (!user) return;
+
+    try {
+      const newTopic = await topicsService.createTopic({
+        user_id: user.id,
+        name: `New Topic ${topics.length + 1}`,
+        is_archived: false
+      });
+
+      // Refresh topics
+      await loadTopics();
+      setSelectedTopicId(newTopic.id);
+      setView('chat');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create topic');
+    }
   };
 
-  const handleSelectTopic = (topicId: string) => {
+  const handleSelectTopic = async (topicId: string) => {
     setSelectedTopicId(topicId);
 
-    // 如果选择的Topic没有分支，自动切换到Chat视图
+    // If selected topic has no branches, switch to chat view
     const topic = topics.find(t => t.id === topicId);
     if (topic && topic.branches.length === 0) {
       setView('chat');
     }
+
+    // Set current branch if topic has one
+    if (topic && topic.current_branch_id) {
+      await topicsService.setCurrentBranch(topicId, topic.current_branch_id);
+    }
   };
 
   const handleSendMessage = async (content: string): Promise<void> => {
-    if (!selectedTopic) return;
-
-    let targetBranch = currentBranch;
-
-    // 如果没有当前分支，创建第一个分支
-    if (!targetBranch) {
-      const newBranchId = `branch-${Date.now()}`;
-      const newBranch: BranchNode = {
-        id: newBranchId,
-        name: 'Main Discussion',
-        parentId: null,
-        messages: [],
-        position: { x: 100, y: 200 },
-        createdAt: new Date().toISOString(),
-      };
-
-      // 更新主题，添加新分支并设为当前分支
-      const updatedTopic: Topic = {
-        ...selectedTopic,
-        branches: [newBranch],
-        currentBranchId: newBranchId,
-      };
-
-      setTopics(prevTopics => prevTopics.map(t =>
-        t.id === selectedTopicId ? updatedTopic : t
-      ));
-
-      targetBranch = newBranch;
-    }
-
-    // 创建用户消息
-    const userMessage: Message = {
-      id: `msg-user-${Date.now()}`,
-      author: 'user',
-      content,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    // 向当前分支添加用户消息
-    const updatedBranch: BranchNode = {
-      ...targetBranch,
-      messages: [...targetBranch.messages, userMessage],
-    };
-
-    // 更新主题状态
-    setTopics(prevTopics => prevTopics.map(t =>
-      t.id === selectedTopicId ? {
-        ...t,
-        branches: t.branches.map(b =>
-          b.id === updatedBranch.id ? updatedBranch : b
-        )
-      } : t
-    ));
+    if (!selectedTopic || !user) return;
 
     try {
-      // 构建AI对话历史（使用分支内的消息）
-      const history = updatedBranch.messages.map(msg => ({
-        role: msg.author === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }],
-      }));
+      let targetBranch = currentBranch;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: history,
-      });
+      // If no current branch, create the first branch
+      if (!targetBranch) {
+        const newBranch = await branchesService.createBranch({
+          topic_id: selectedTopic.id,
+          name: 'Main Discussion',
+          parent_id: null,
+          system_prompt: null,
+          model_config: {
+            model: 'gpt-4',
+            temperature: 0.7,
+            max_tokens: 2000
+          },
+          position: { x: 100, y: 200 },
+          is_active: true
+        });
 
-      const aiMessage: Message = {
-        id: `msg-ai-${Date.now()}`,
-        author: 'ai',
-        content: response.text,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
+        // Set as current branch
+        await topicsService.setCurrentBranch(selectedTopic.id, newBranch.id);
 
-      // 添加AI响应到分支
-      setTopics(prevTopics => prevTopics.map(t =>
-        t.id === selectedTopicId ? {
-          ...t,
-          branches: t.branches.map(b =>
-            b.id === updatedBranch.id ? {
-              ...b,
-              messages: [...b.messages, aiMessage],
-            } : b
-          )
-        } : t
-      ));
+        // Reload topics to get updated state
+        await loadTopics();
 
-    } catch (error) {
-      console.error("Error getting AI response:", error);
-      const errorMessage: Message = {
-        id: `msg-err-${Date.now()}`,
-        author: 'ai',
-        content: "Sorry, I couldn't get a response. Please check your API key and network connection.",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      // 添加错误消息到分支
-      setTopics(prevTopics => prevTopics.map(t =>
-        t.id === selectedTopicId ? {
-          ...t,
-          branches: t.branches.map(b =>
-            b.id === updatedBranch.id ? {
-              ...b,
-              messages: [...b.messages, errorMessage],
-            } : b
-          )
-        } : t
-      ));
-    }
-  };
-  
-  const handleCreateBranch = async (branchName: string, sourceBranchId: string, upToMessageId?: string) => {
-    if (!selectedTopic) return;
-
-    // 找到源分支
-    const sourceBranch = selectedTopic.branches.find(b => b.id === sourceBranchId);
-    if (!sourceBranch) return;
-
-    // 创建新分支ID
-    const newBranchId = `branch-${Date.now()}`;
-
-    // 根据upToMessageId决定要复制哪些消息
-    let messagesToCopy = [...sourceBranch.messages];
-    if (upToMessageId) {
-      const messageIndex = sourceBranch.messages.findIndex(m => m.id === upToMessageId);
-      if (messageIndex !== -1) {
-        // 只复制到指定消息为止（包含该消息）
-        messagesToCopy = sourceBranch.messages.slice(0, messageIndex + 1);
+        targetBranch = {
+          id: newBranch.id,
+          name: newBranch.name,
+          parentId: newBranch.parent_id,
+          messages: [],
+          position: newBranch.position as { x: number; y: number },
+          createdAt: newBranch.created_at
+        } as BranchNode;
       }
-    }
 
-    // 计算新分支的位置（在父分支旁边）
-    const newPosition = {
-      x: sourceBranch.position.x + 300,
-      y: sourceBranch.position.y + (selectedTopic.branches.filter(b => b.parentId === sourceBranchId).length * 150),
-    };
-
-    const newBranch: BranchNode = {
-      id: newBranchId,
-      name: branchName,
-      parentId: sourceBranchId,
-      messages: messagesToCopy, // 根据upToMessageId过滤后的消息
-      position: newPosition,
-      createdAt: new Date().toISOString(),
-      isNew: true, // 标记为新分支以便高亮
-    };
-
-    // 更新主题：添加新分支，设为当前分支，清除其他分支的isNew标记
-    const updatedTopic: Topic = {
-      ...selectedTopic,
-      branches: [
-        ...selectedTopic.branches.map(b => ({ ...b, isNew: false })), // 清除其他分支的高亮
-        newBranch
-      ],
-      currentBranchId: newBranchId,
-    };
-
-    setTopics(prevTopics => prevTopics.map(t =>
-      t.id === selectedTopicId ? updatedTopic : t
-    ));
-
-    // 立即切换到画布视图（新分支会自动高亮）
-    setView('canvas');
-
-    // 异步处理AI响应
-    try {
-      const history = newBranch.messages.map(msg => ({
-        role: msg.author === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }],
-      }));
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: history,
+      // Create user message
+      await messagesService.createMessage({
+        branch_id: targetBranch.id,
+        author: 'user',
+        content,
+        metadata: {}
       });
 
-      const aiMessage: Message = {
-        id: `msg-ai-${Date.now()}`,
-        author: 'ai',
-        content: response.text,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
+      // Get messages for context
+      const messages = await messagesService.getMessages(targetBranch.id);
 
-      // 添加AI响应到新分支
-      setTopics(prevTopics => prevTopics.map(t =>
-        t.id === selectedTopicId ? {
-          ...t,
-          branches: t.branches.map(b =>
-            b.id === newBranchId ? {
-              ...b,
-              messages: [...b.messages, aiMessage],
-            } : b
-          )
-        } : t
-      ));
+      // Convert to API format
+      const apiMessages = messages.map(msg => ({
+        role: msg.author === 'user' ? 'user' as const : 'assistant' as const,
+        content: msg.content
+      }));
 
-    } catch (error) {
-      console.error("Error getting AI response for new branch:", error);
+      // Send to AI API
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: apiMessages,
+          model: selectedModel
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get AI response');
+      }
+
+      const data = await response.json();
+
+      // Create AI response message
+      await messagesService.createMessage({
+        branch_id: targetBranch.id,
+        author: 'assistant',
+        content: data.message,
+        metadata: { model: selectedModel }
+      });
+
+      // Refresh the current topic to show new messages
+      await loadTopics();
+
+      // Reload messages for current branch
+      const updatedMessages = await loadBranchMessages(targetBranch.id);
+      setBranchMessages(prev => ({
+        ...prev,
+        [targetBranch.id]: updatedMessages
+      }));
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send message');
     }
   };
 
-  const handleBranchClick = (branchId: string) => {
+  const handleCreateBranch = async (
+    parentBranchId: string,
+    branchName: string,
+    fromMessageIndex?: number
+  ): Promise<void> => {
     if (!selectedTopic) return;
 
-    // 设置当前分支并切换到聊天视图
-    setTopics(prevTopics => prevTopics.map(t =>
-      t.id === selectedTopicId ? { ...t, currentBranchId: branchId } : t
-    ));
-    setView('chat');
+    try {
+      const parentBranch = selectedTopic.branches.find(b => b.id === parentBranchId);
+      if (!parentBranch) return;
+
+      // Calculate position for new branch
+      const parentPos = parentBranch.position as { x: number; y: number };
+      const newPosition = {
+        x: parentPos.x + 300,
+        y: parentPos.y + 100
+      };
+
+      // Create new branch
+      const newBranch = await branchesService.createBranch({
+        topic_id: selectedTopic.id,
+        parent_id: parentBranchId,
+        name: branchName,
+        system_prompt: parentBranch.system_prompt,
+        model_config: parentBranch.model_config,
+        position: newPosition,
+        is_active: true
+      });
+
+      // Copy messages up to the specified index
+      if (fromMessageIndex !== undefined) {
+        // TODO: Load parent messages and copy them
+        // This would require loading messages from the parent branch
+      }
+
+      // Set new branch as current
+      await topicsService.setCurrentBranch(selectedTopic.id, newBranch.id);
+
+      // Refresh topics and switch to canvas view
+      await loadTopics();
+      setView('canvas');
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create branch');
+    }
   };
 
+  const handleBranchClick = async (branchId: string): Promise<void> => {
+    if (!selectedTopic) return;
+
+    try {
+      await topicsService.setCurrentBranch(selectedTopic.id, branchId);
+      await loadTopics();
+
+      // Load messages for the newly selected branch
+      const messages = await loadBranchMessages(branchId);
+      setBranchMessages(prev => ({
+        ...prev,
+        [branchId]: messages
+      }));
+
+      setView('chat');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to switch branch');
+    }
+  };
+
+  const handleUpdateSystemPrompt = async (branchId: string, systemPrompt: string): Promise<void> => {
+    try {
+      await branchesService.updateSystemPrompt(branchId, systemPrompt);
+      // Refresh topics to get updated data
+      await loadTopics();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update system prompt');
+      throw err; // Re-throw so the UI can handle it
+    }
+  };
+
+  // Convert topics to app format for existing components
+  const appTopics: Topic[] = topics.map(topic => ({
+    id: topic.id,
+    name: topic.name,
+    branches: topic.branches.map(branch => ({
+      id: branch.id,
+      name: branch.name,
+      parentId: branch.parent_id,
+      messages: [], // Messages loaded separately
+      position: branch.position as { x: number; y: number },
+      systemPrompt: branch.system_prompt,
+      createdAt: branch.created_at
+    })),
+    currentBranchId: topic.current_branch_id
+  }));
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-indigo-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-screen bg-white font-sans text-slate-900">
-      <div className={`transition-all duration-300 ${sidebarVisible ? 'w-64' : 'w-0'} overflow-hidden`}>
-        <Sidebar
-          topics={topics}
-          selectedTopicId={selectedTopicId}
-          onSelectTopic={handleSelectTopic}
-          onCreateTopic={handleCreateTopic}
-        />
-      </div>
-      <div className="flex-1 flex flex-col relative">
-        <button
-          onClick={() => setSidebarVisible(!sidebarVisible)}
-          className="absolute top-1/2 -translate-y-1/2 -left-4 z-20 p-2 bg-white rounded-full shadow-md border border-slate-200 hover:bg-slate-100 transition-colors"
-        >
-          <ChevronLeftIcon className={`w-5 h-5 text-slate-600 transition-transform ${sidebarVisible ? '' : 'rotate-180'}`} />
-        </button>
-        {selectedTopic ? (
-          <>
-            <div className="flex items-center justify-between p-4 border-b border-slate-200">
-              <h2 className="text-xl font-semibold text-slate-800">{selectedTopic.name}</h2>
-              <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
-                <button onClick={() => setView('chat')} className={`px-3 py-1 text-sm rounded-md transition-colors ${view === 'chat' ? 'bg-white shadow-sm text-blue-600 font-semibold' : 'text-slate-600 hover:bg-slate-200'}`}>Chat</button>
-                <button onClick={() => setView('canvas')} className={`px-3 py-1 text-sm rounded-md transition-colors ${view === 'canvas' ? 'bg-white shadow-sm text-blue-600 font-semibold' : 'text-slate-600 hover:bg-slate-200'}`}>Canvas</button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-hidden bg-slate-50">
-                {view === 'chat' ? (
-                    <ChatView
-                      currentBranch={currentBranch}
-                      onSendMessage={handleSendMessage}
-                      onCreateBranch={handleCreateBranch}
-                    />
-                ) : (
-                    <CanvasView
-                      topic={selectedTopic}
-                      onBranchClick={handleBranchClick}
-                      layout={layout}
-                      onLayoutChange={setLayout}
-                    />
-                )}
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-slate-500">
-            <p>Select a topic or create a new one to start.</p>
+    <ProtectedRoute>
+      <div className="h-screen flex bg-gray-50">
+        {error && (
+          <div className="fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50">
+            <button
+              onClick={() => setError(null)}
+              className="float-right ml-2 font-bold"
+            >
+              ×
+            </button>
+            {error}
           </div>
         )}
+
+        {/* Sidebar */}
+        <div className={`${sidebarVisible ? 'w-80' : 'w-0'} transition-all duration-300 overflow-hidden`}>
+          <Sidebar
+            topics={appTopics}
+            selectedTopicId={selectedTopicId}
+            onSelectTopic={handleSelectTopic}
+            onCreateTopic={handleCreateTopic}
+            userEmail={user?.email || ''}
+            onSignOut={signOut}
+          />
+        </div>
+
+        {/* Main content */}
+        <div className="flex-1 flex flex-col">
+          {/* Header with sidebar toggle */}
+          <div className="bg-white border-b border-gray-200">
+            <div className="h-12 flex items-center px-4">
+              <button
+                onClick={() => setSidebarVisible(!sidebarVisible)}
+                className="p-1 rounded-md hover:bg-gray-100"
+              >
+                <ChevronLeftIcon className={`w-5 h-5 transition-transform ${sidebarVisible ? '' : 'rotate-180'}`} />
+              </button>
+
+              <div className="ml-4 flex items-center space-x-4 flex-1">
+                <h1 className="text-lg font-semibold text-gray-900">
+                  {selectedTopic?.name || 'Synapse'}
+                </h1>
+
+                {selectedTopic && (
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => setView('chat')}
+                      className={`px-3 py-1 rounded-md text-sm font-medium ${
+                        view === 'chat'
+                          ? 'bg-indigo-100 text-indigo-700'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      Chat
+                    </button>
+                    <button
+                      onClick={() => setView('canvas')}
+                      className={`px-3 py-1 rounded-md text-sm font-medium ${
+                        view === 'canvas'
+                          ? 'bg-indigo-100 text-indigo-700'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      Canvas
+                    </button>
+                  </div>
+                )}
+
+                <div className="ml-auto">
+                  <ModelSelector
+                    selectedModel={selectedModel}
+                    onModelChange={setSelectedModel}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Main content area */}
+          <div className="flex-1">
+            {!selectedTopic ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="text-center">
+                  <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                    Welcome to Synapse
+                  </h2>
+                  <p className="text-gray-600 mb-4">
+                    Create a new topic to start a conversation
+                  </p>
+                  <button
+                    onClick={handleCreateTopic}
+                    className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
+                  >
+                    Create Topic
+                  </button>
+                </div>
+              </div>
+            ) : view === 'chat' ? (
+              <ChatView
+                currentBranch={currentBranch}
+                onSendMessage={handleSendMessage}
+                onCreateBranch={handleCreateBranch}
+                onUpdateSystemPrompt={handleUpdateSystemPrompt}
+              />
+            ) : (
+              <CanvasView
+                topic={selectedTopic}
+                layout={layout}
+                onLayoutChange={setLayout}
+                onBranchClick={handleBranchClick}
+                onCreateBranch={handleCreateBranch}
+                onUpdateSystemPrompt={handleUpdateSystemPrompt}
+              />
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </ProtectedRoute>
   );
 };
 

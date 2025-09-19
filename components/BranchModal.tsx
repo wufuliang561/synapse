@@ -1,6 +1,5 @@
 
 import React, { useState } from 'react';
-import { AI_MODELS } from '../constants';
 import { SparklesIcon } from './icons';
 
 interface BranchModalProps {

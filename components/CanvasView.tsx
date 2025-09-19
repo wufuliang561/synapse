@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -16,6 +16,7 @@ import '@xyflow/react/dist/style.css';
 import type { Topic, BranchNode } from '../types';
 import { LayoutHorizontalIcon, LayoutVerticalIcon, SparklesIcon } from './icons';
 import BranchNodeComponent, { type BranchNodeData } from './MessageNode';
+import { SystemPromptModal } from './SystemPromptModal';
 
 // Constants for layout calculation
 const NODE_WIDTH = 192; // Corresponds to w-48
@@ -34,6 +35,7 @@ interface CanvasViewProps {
   onBranchClick: (branchId: string) => void;
   layout: Layout;
   onLayoutChange: (layout: Layout) => void;
+  onUpdateSystemPrompt: (branchId: string, systemPrompt: string) => Promise<void>;
 }
 
 const CanvasView: React.FC<CanvasViewProps> = ({
@@ -41,7 +43,19 @@ const CanvasView: React.FC<CanvasViewProps> = ({
   onBranchClick,
   layout,
   onLayoutChange,
+  onUpdateSystemPrompt,
 }) => {
+  const [systemPromptModal, setSystemPromptModal] = useState<{
+    isOpen: boolean;
+    branchId: string;
+    branchName: string;
+    initialPrompt: string;
+  }>({
+    isOpen: false,
+    branchId: '',
+    branchName: '',
+    initialPrompt: ''
+  });
   if (!topic) {
     return (
       <div className="flex-1 w-full h-full relative bg-slate-50 flex items-center justify-center">
@@ -186,6 +200,34 @@ const CanvasView: React.FC<CanvasViewProps> = ({
     onBranchClick(node.id);
   }, [onBranchClick]);
 
+  // 处理分支节点双击
+  const handleNodeDoubleClick: OnNodeClick = useCallback((event, node) => {
+    const branch = topic?.branches.find(b => b.id === node.id);
+    if (branch) {
+      setSystemPromptModal({
+        isOpen: true,
+        branchId: branch.id,
+        branchName: branch.name,
+        initialPrompt: branch.systemPrompt || ''
+      });
+    }
+  }, [topic?.branches]);
+
+  // 处理 system prompt 保存
+  const handleSystemPromptSave = useCallback(async (prompt: string) => {
+    await onUpdateSystemPrompt(systemPromptModal.branchId, prompt);
+  }, [onUpdateSystemPrompt, systemPromptModal.branchId]);
+
+  // 关闭 modal
+  const handleModalClose = useCallback(() => {
+    setSystemPromptModal({
+      isOpen: false,
+      branchId: '',
+      branchName: '',
+      initialPrompt: ''
+    });
+  }, []);
+
   return (
     <div className="flex-1 w-full h-full relative bg-slate-50">
       <div className="absolute top-4 left-4 text-slate-400 text-sm z-10">
@@ -224,6 +266,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={handleNodeClick}
+          onNodeDoubleClick={handleNodeDoubleClick}
           nodeTypes={nodeTypes}
           nodesDraggable={false}
           nodesConnectable={false}
@@ -241,6 +284,15 @@ const CanvasView: React.FC<CanvasViewProps> = ({
           <Background color="#f1f5f9" gap={16} />
         </ReactFlow>
       )}
+
+      {/* System Prompt Modal */}
+      <SystemPromptModal
+        isOpen={systemPromptModal.isOpen}
+        onClose={handleModalClose}
+        branchName={systemPromptModal.branchName}
+        initialPrompt={systemPromptModal.initialPrompt}
+        onSave={handleSystemPromptSave}
+      />
     </div>
   );
 };
