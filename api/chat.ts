@@ -37,11 +37,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const token = authHeader.substring(7);
 
     // Create Supabase client for token verification
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('Missing Supabase environment variables');
+      console.error('Missing Supabase environment variables:', {
+        supabaseUrl: !!supabaseUrl,
+        supabaseServiceKey: !!supabaseServiceKey
+      });
       return res.status(500).json({ error: 'Server configuration error' });
     }
 
