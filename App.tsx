@@ -9,6 +9,7 @@ import { useAuth } from './components/Auth/AuthProvider';
 import { topicsService } from './services/topics.service';
 import { branchesService } from './services/branches.service';
 import { messagesService } from './services/messages.service';
+import { supabase } from './lib/supabase';
 import type { Topic, Message, BranchNode } from './types';
 import type { TopicWithBranches } from './services/topics.service';
 import { ChevronLeftIcon } from './components/icons';
@@ -199,11 +200,19 @@ const App: React.FC = () => {
         content: msg.content
       }));
 
-      // Send to AI API
+      // Get current session for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error('Authentication required. Please login again.');
+      }
+
+      // Send to AI API with authentication
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           messages: apiMessages,
@@ -212,7 +221,13 @@ const App: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to get AI response');
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+          // Authentication error - user needs to login again
+          setError('Authentication expired. Please refresh the page and login again.');
+          return;
+        }
+        throw new Error(errorData.error || `HTTP ${response.status}: Failed to get AI response`);
       }
 
       const data = await response.json();
@@ -236,7 +251,16 @@ const App: React.FC = () => {
       }));
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
+      console.error('Send message error:', err);
+
+      // If it's an authentication error, don't show as a regular error
+      if (errorMessage.includes('Authentication')) {
+        // The error is already set above for authentication issues
+        return;
+      }
+
+      setError(errorMessage);
     }
   };
 
@@ -349,14 +373,29 @@ const App: React.FC = () => {
     <ProtectedRoute>
       <div className="h-screen flex bg-gray-50">
         {error && (
-          <div className="fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50">
-            <button
-              onClick={() => setError(null)}
-              className="float-right ml-2 font-bold"
-            >
-              ×
-            </button>
-            {error}
+          <div className="fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50 max-w-md shadow-lg">
+            <div className="flex items-start">
+              <div className="flex-1">
+                <div className="font-bold text-sm mb-1">
+                  {error.includes('Authentication') ? '🔒 Authentication Error' : '⚠️ Error'}
+                </div>
+                <div className="text-sm">{error}</div>
+                {error.includes('Authentication') && (
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="mt-2 text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
+                  >
+                    Refresh Page
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="ml-2 font-bold text-lg leading-none hover:text-red-900"
+              >
+                ×
+              </button>
+            </div>
           </div>
         )}
 

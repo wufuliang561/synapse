@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { createClient } from '@supabase/supabase-js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 interface ChatMessage {
@@ -27,6 +28,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    // Verify authentication
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authentication required. Missing or invalid Authorization header.' });
+    }
+
+    const token = authHeader.substring(7);
+
+    // Create Supabase client for token verification
+    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('Missing Supabase environment variables');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Verify the JWT token and get user
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      console.error('Token verification failed:', authError?.message);
+      return res.status(401).json({ error: 'Invalid or expired authentication token' });
+    }
+
+    console.log('Authenticated user:', user.id, user.email);
+
     const { messages, model = 'deepseek/deepseek-chat-v3.1' }: ChatRequest = req.body;
 
     if (!messages || !Array.isArray(messages)) {
@@ -69,7 +99,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       message: responseMessage,
       success: true,
-      model: model
+      model: model,
+      user_id: user.id
     });
 
   } catch (error) {
