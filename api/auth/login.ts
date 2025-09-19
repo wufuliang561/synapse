@@ -20,6 +20,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Debug environment variables
+  console.log('Environment check:', {
+    NODE_ENV: process.env.NODE_ENV,
+    hasSupabaseUrl: !!supabaseUrl,
+    hasSupabaseServiceKey: !!supabaseServiceKey,
+    availableEnvKeys: Object.keys(process.env).filter(key =>
+      key.includes('SUPABASE') || key.includes('OPENROUTER')
+    )
+  });
+
   try {
     const { email, password } = req.body;
 
