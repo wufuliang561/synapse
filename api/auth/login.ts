@@ -1,24 +1,14 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
 import bcrypt from 'bcrypt';
 import { validateLogin } from '../../lib/auth/validators';
 import { generateAccessToken, generateRefreshToken } from '../../lib/auth/jwt';
-import { LocalStorage } from '../../lib/auth/storage';
 import type { LoginRequest, AuthResponse } from '../../lib/auth/types';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function POST(request: Request) {
   console.log('Login API called!');
-  console.log('Method:', req.method);
-  console.log('Body:', req.body);
-  if (req.method !== 'POST') {
-    console.log('Method not allowed');
-    return res.status(405).json({
-      success: false,
-      message: 'Method not allowed'
-    } as AuthResponse);
-  }
 
   try {
-    const { email, password }: LoginRequest = req.body;
+    const body = await request.json();
+    const { email, password }: LoginRequest = body;
     console.log('Login attempt:', { email, password: '***' });
 
     // 验证输入
@@ -26,10 +16,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const validation = validateLogin(email, password);
     if (!validation.isValid) {
       console.log('Validation failed:', validation.errors);
-      return res.status(400).json({
+      return Response.json({
         success: false,
         message: validation.errors.join(', ')
-      } as AuthResponse);
+      } as AuthResponse, { status: 400 });
     }
     console.log('✅ Input validation passed');
 
@@ -49,10 +39,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log('Mock: Verifying password...');
     const isPasswordValid = true; // Mock: 总是通过
     if (!isPasswordValid) {
-      return res.status(401).json({
+      return Response.json({
         success: false,
         message: '邮箱或密码错误'
-      } as AuthResponse);
+      } as AuthResponse, { status: 401 });
     }
     console.log('✅ Mock: Password verification passed');
 
@@ -73,19 +63,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log('Login completed for user:', user.email);
 
-    res.status(200).json({
+    return Response.json({
       success: true,
       user,
       accessToken,
       refreshToken,
       message: '登录成功'
-    } as AuthResponse);
+    } as AuthResponse, { status: 200 });
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
+    return Response.json({
       success: false,
       message: '服务器内部错误'
-    } as AuthResponse);
+    } as AuthResponse, { status: 500 });
   }
 }

@@ -1,25 +1,14 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
 import bcrypt from 'bcrypt';
 import { validateRegistration } from '../../lib/auth/validators';
 import { generateAccessToken, generateRefreshToken } from '../../lib/auth/jwt';
-import { LocalStorage } from '../../lib/auth/storage';
 import type { RegisterRequest, AuthResponse, User } from '../../lib/auth/types';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function POST(request: Request) {
   console.log('Register API called!');
-  console.log('Method:', req.method);
-  console.log('Body:', req.body);
-
-  if (req.method !== 'POST') {
-    console.log('Method not allowed');
-    return res.status(405).json({
-      success: false,
-      message: 'Method not allowed'
-    } as AuthResponse);
-  }
 
   try {
-    const { email, username, password }: RegisterRequest = req.body;
+    const body = await request.json();
+    const { email, username, password }: RegisterRequest = body;
     console.log('Register attempt:', { email, username, password: '***' });
 
     // 验证输入
@@ -27,10 +16,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const validation = validateRegistration(email, username, password);
     if (!validation.isValid) {
       console.log('Validation failed:', validation.errors);
-      return res.status(400).json({
+      return Response.json({
         success: false,
         message: validation.errors.join(', ')
-      } as AuthResponse);
+      } as AuthResponse, { status: 400 });
     }
     console.log('✅ Input validation passed');
 
@@ -38,10 +27,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log('Mock: Checking if email exists...', email);
     const emailExists = false; // Mock: 总是通过
     if (emailExists) {
-      return res.status(409).json({
+      return Response.json({
         success: false,
         message: '该邮箱已被注册'
-      } as AuthResponse);
+      } as AuthResponse, { status: 409 });
     }
     console.log('✅ Mock: Email check passed');
 
@@ -49,10 +38,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log('Mock: Checking if username exists...', username);
     const usernameExists = false; // Mock: 总是通过
     if (usernameExists) {
-      return res.status(409).json({
+      return Response.json({
         success: false,
         message: '该用户名已被使用'
-      } as AuthResponse);
+      } as AuthResponse, { status: 409 });
     }
     console.log('✅ Mock: Username check passed');
 
@@ -86,19 +75,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log('Registration completed for user:', user.email);
 
-    res.status(201).json({
+    return Response.json({
       success: true,
       user,
       accessToken,
       refreshToken,
       message: '注册成功'
-    } as AuthResponse);
+    } as AuthResponse, { status: 201 });
 
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({
+    return Response.json({
       success: false,
       message: '服务器内部错误'
-    } as AuthResponse);
+    } as AuthResponse, { status: 500 });
   }
 }
