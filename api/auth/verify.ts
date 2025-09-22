@@ -1,41 +1,33 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifyAccessToken } from '../../lib/auth/jwt';
-import { LocalStorage } from '../../lib/auth/storage';
-import type { AuthResponse } from '../../lib/auth/types';
+import { verifyAccessToken } from '../../lib/auth/jwt.js';
+import { LocalStorage } from '../../lib/auth/storage.js';
+import type { AuthResponse } from '../../lib/auth/types.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({
-      success: false,
-      message: 'Method not allowed'
-    } as AuthResponse);
-  }
-
+export async function POST(request: Request) {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
+      return Response.json({
         success: false,
         message: '未提供认证令牌'
-      } as AuthResponse);
+      } as AuthResponse, { status: 401 });
     }
 
     const token = authHeader.substring(7);
     const payload = verifyAccessToken(token);
 
     if (!payload) {
-      return res.status(401).json({
+      return Response.json({
         success: false,
         message: '无效的认证令牌'
-      } as AuthResponse);
+      } as AuthResponse, { status: 401 });
     }
 
     const storedUser = LocalStorage.findUserById(payload.userId);
     if (!storedUser) {
-      return res.status(401).json({
+      return Response.json({
         success: false,
         message: '用户不存在'
-      } as AuthResponse);
+      } as AuthResponse, { status: 401 });
     }
 
     const user = {
@@ -46,17 +38,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       updatedAt: storedUser.updatedAt,
     };
 
-    res.status(200).json({
+    return Response.json({
       success: true,
       user,
       message: '令牌验证成功'
-    } as AuthResponse);
+    } as AuthResponse, { status: 200 });
 
   } catch (error) {
     console.error('Token verification error:', error);
-    res.status(500).json({
+    return Response.json({
       success: false,
       message: '服务器内部错误'
-    } as AuthResponse);
+    } as AuthResponse, { status: 500 });
   }
 }

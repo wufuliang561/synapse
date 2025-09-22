@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
-import { validateRegistration } from '../../lib/auth/validators';
-import { generateAccessToken, generateRefreshToken } from '../../lib/auth/jwt';
-import type { RegisterRequest, AuthResponse, User } from '../../lib/auth/types';
+import { validateRegistration } from '../../lib/auth/validators.js';
+import { generateAccessToken, generateRefreshToken } from '../../lib/auth/jwt.js';
+import type { RegisterRequest, AuthResponse, User } from '../../lib/auth/types.js';
 
 export async function POST(request: Request) {
   console.log('Register API called!');

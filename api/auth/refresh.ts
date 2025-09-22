@@ -1,40 +1,33 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifyRefreshToken, generateAccessToken, generateRefreshToken } from '../../lib/auth/jwt';
-import { LocalStorage } from '../../lib/auth/storage';
-import type { AuthResponse } from '../../lib/auth/types';
+import { verifyRefreshToken, generateAccessToken, generateRefreshToken } from '../../lib/auth/jwt.js';
+import { LocalStorage } from '../../lib/auth/storage.js';
+import type { AuthResponse } from '../../lib/auth/types.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({
-      success: false,
-      message: 'Method not allowed'
-    } as AuthResponse);
-  }
-
+export async function POST(request: Request) {
   try {
-    const { refreshToken } = req.body;
+    const body = await request.json();
+    const { refreshToken } = body;
 
     if (!refreshToken) {
-      return res.status(400).json({
+      return Response.json({
         success: false,
         message: '未提供刷新令牌'
-      } as AuthResponse);
+      } as AuthResponse, { status: 400 });
     }
 
     const payload = verifyRefreshToken(refreshToken);
     if (!payload) {
-      return res.status(401).json({
+      return Response.json({
         success: false,
         message: '无效的刷新令牌'
-      } as AuthResponse);
+      } as AuthResponse, { status: 401 });
     }
 
     const storedUser = LocalStorage.findUserById(payload.userId);
     if (!storedUser) {
-      return res.status(401).json({
+      return Response.json({
         success: false,
         message: '用户不存在'
-      } as AuthResponse);
+      } as AuthResponse, { status: 401 });
     }
 
     const user = {
@@ -48,19 +41,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const newAccessToken = generateAccessToken(user);
     const newRefreshToken = generateRefreshToken(user.id);
 
-    res.status(200).json({
+    return Response.json({
       success: true,
       user,
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
       message: '令牌刷新成功'
-    } as AuthResponse);
+    } as AuthResponse, { status: 200 });
 
   } catch (error) {
     console.error('Token refresh error:', error);
-    res.status(500).json({
+    return Response.json({
       success: false,
       message: '服务器内部错误'
-    } as AuthResponse);
+    } as AuthResponse, { status: 500 });
   }
 }
