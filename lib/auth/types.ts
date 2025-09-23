@@ -4,6 +4,7 @@ export interface User {
   username: string;
   createdAt: string;
   updatedAt: string;
+  avatar?: string;
 }
 
 export interface RegisterRequest {
@@ -16,6 +17,7 @@ export interface LoginRequest {
   email: string;
   password: string;
 }
+
 
 export interface AuthResponse {
   success: boolean;
@@ -48,19 +50,7 @@ export interface AuthContextType {
   register: (email: string, username: string, password: string) => Promise<boolean>;
   logout: () => void;
   refreshToken: () => Promise<boolean>;
+  lastError: string | null;
+  clearError: () => void;
 }
 
-export interface AuthProviderConfig {
-  type: 'email' | 'oauth';
-  provider?: 'github' | 'google';
-  name: string;
-  icon?: string;
-}
-
-export interface OAuthProvider {
-  name: string;
-  clientId: string;
-  scope: string[];
-  redirectUri: string;
-  authUrl: string;
-}

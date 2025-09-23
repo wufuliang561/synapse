@@ -1,12 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { GoogleGenAI } from '@google/genai';
 import Sidebar from './components/Sidebar';
 import ChatView from './components/ChatView';
 import CanvasView from './components/CanvasView';
 import { AuthProvider } from './contexts/AuthContext';
-import { AuthModal } from './components/auth/AuthModal';
-import { UserMenu } from './components/auth/UserMenu';
-import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { AuthModal } from './components/Auth/AuthModal';
+import { UserMenu } from './components/Auth/UserMenu';
+import { ProtectedRoute } from './components/Auth/ProtectedRoute';
 import { useAuth } from './contexts/AuthContext';
 import { MOCK_TOPICS } from './constants';
 import type { Topic, Message, BranchNode } from './types';
@@ -23,6 +24,7 @@ const MainApp: React.FC = () => {
   const [view, setView] = useState<'chat' | 'canvas'>('canvas'); // 默认显示画布
   const [layout, setLayout] = useState<'horizontal' | 'vertical'>('horizontal');
   const [sidebarVisible, setSidebarVisible] = useState(true);
+
 
   const selectedTopic = useMemo(() => {
     return topics.find(t => t.id === selectedTopicId);
@@ -350,7 +352,11 @@ const MainApp: React.FC = () => {
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <MainApp />
+      <Router>
+        <Routes>
+          <Route path="/" element={<MainApp />} />
+        </Routes>
+      </Router>
     </AuthProvider>
   );
 };

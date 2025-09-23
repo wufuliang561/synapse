@@ -13,12 +13,17 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const isAuthenticated = !!user;
+
+  // 清除错误信息
+  const clearError = () => setLastError(null);
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
       setIsLoading(true);
+      clearError(); // 清除之前的错误信息
       const response = await AuthAPI.login({ email, password });
 
       if (response.success && response.user && response.accessToken && response.refreshToken) {
@@ -28,9 +33,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return true;
       }
 
+      // 将服务器的错误信息存储，供UI组件使用
+      if (response.message) {
+        setLastError(response.message);
+      }
+
       return false;
     } catch (error) {
       console.error('Login failed:', error);
+      setLastError('登录失败，请稍后重试');
       return false;
     } finally {
       setIsLoading(false);
@@ -40,6 +51,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const register = async (email: string, username: string, password: string): Promise<boolean> => {
     try {
       setIsLoading(true);
+      clearError(); // 清除之前的错误信息
       const response = await AuthAPI.register({ email, username, password });
 
       if (response.success && response.user && response.accessToken && response.refreshToken) {
@@ -49,14 +61,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return true;
       }
 
+      // 将服务器的错误信息存储，供UI组件使用
+      if (response.message) {
+        setLastError(response.message);
+      }
+
       return false;
     } catch (error) {
       console.error('Registration failed:', error);
+      setLastError('注册失败，请稍后重试');
       return false;
     } finally {
       setIsLoading(false);
     }
   };
+
 
   const logout = (): void => {
     setUser(null);
@@ -85,6 +104,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return false;
     }
   };
+
 
   const verifyExistingAuth = async (): Promise<void> => {
     try {
@@ -146,6 +166,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     register,
     logout,
     refreshToken,
+    lastError,
+    clearError,
   };
 
   return (

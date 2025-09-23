@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { validateRegistration } from '../../lib/auth/validators';
+import { ErrorDisplay } from '../UI/ErrorDisplay';
+import { OAuthButtons } from './OAuthButtons';
 
 interface RegisterFormProps {
   onSuccess?: () => void;
@@ -8,7 +10,7 @@ interface RegisterFormProps {
 }
 
 export function RegisterForm({ onSuccess, onSwitchToLogin }: RegisterFormProps) {
-  const { register, isLoading } = useAuth();
+  const { register, isLoading, lastError, clearError } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     username: '',
@@ -20,6 +22,7 @@ export function RegisterForm({ onSuccess, onSwitchToLogin }: RegisterFormProps) 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors([]);
+    clearError(); // 清除之前的错误
 
     const validation = validateRegistration(formData.email, formData.username, formData.password);
     if (!validation.isValid) {
@@ -36,13 +39,26 @@ export function RegisterForm({ onSuccess, onSwitchToLogin }: RegisterFormProps) 
     if (success) {
       onSuccess?.();
     } else {
-      setErrors(['注册失败，请稍后重试']);
+      // 优先显示服务器返回的具体错误信息
+      if (lastError) {
+        setErrors([lastError]);
+      } else {
+        setErrors(['注册失败，请稍后重试']);
+      }
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleGoogleClick = () => {
+    // Handled by OAuthButtons component
+  };
+
+  const handleGitHubClick = () => {
+    // Handled by OAuthButtons component
   };
 
   return (
@@ -52,13 +68,17 @@ export function RegisterForm({ onSuccess, onSwitchToLogin }: RegisterFormProps) 
           注册 Synapse
         </h2>
 
-        {errors.length > 0 && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-            {errors.map((error, index) => (
-              <p key={index} className="text-red-600 text-sm">{error}</p>
-            ))}
-          </div>
-        )}
+        <ErrorDisplay
+          errors={errors}
+          onClose={() => setErrors([])}
+        />
+
+        {/* OAuth Buttons */}
+        <OAuthButtons
+          onGoogleClick={handleGoogleClick}
+          onGitHubClick={handleGitHubClick}
+          isLoading={isLoading}
+        />
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

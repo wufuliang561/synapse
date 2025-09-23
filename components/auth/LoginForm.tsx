@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { ErrorDisplay } from '../UI/ErrorDisplay';
+import { OAuthButtons } from '../Auth/OAuthButtons';
 
 interface LoginFormProps {
   onSuccess?: () => void;
@@ -7,7 +9,7 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ onSuccess, onSwitchToRegister }: LoginFormProps) {
-  const { login, isLoading } = useAuth();
+  const { login, isLoading, lastError, clearError } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -17,6 +19,7 @@ export function LoginForm({ onSuccess, onSwitchToRegister }: LoginFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors([]);
+    clearError(); // 清除之前的错误
 
     if (!formData.email || !formData.password) {
       setErrors(['请填写所有字段']);
@@ -27,13 +30,26 @@ export function LoginForm({ onSuccess, onSwitchToRegister }: LoginFormProps) {
     if (success) {
       onSuccess?.();
     } else {
-      setErrors(['登录失败，请检查邮箱和密码']);
+      // 优先显示服务器返回的具体错误信息
+      if (lastError) {
+        setErrors([lastError]);
+      } else {
+        setErrors(['登录失败，请检查邮箱和密码']);
+      }
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleGoogleClick = () => {
+    // Handled by OAuthButtons component
+  };
+
+  const handleGitHubClick = () => {
+    // Handled by OAuthButtons component
   };
 
   return (
@@ -43,15 +59,19 @@ export function LoginForm({ onSuccess, onSwitchToRegister }: LoginFormProps) {
           登录 Synapse
         </h2>
 
-        {errors.length > 0 && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-            {errors.map((error, index) => (
-              <p key={index} className="text-red-600 text-sm">{error}</p>
-            ))}
-          </div>
-        )}
+        <ErrorDisplay
+          errors={errors}
+          onClose={() => setErrors([])}
+        />
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* OAuth Buttons */}
+        <OAuthButtons
+          onGoogleClick={handleGoogleClick}
+          onGitHubClick={handleGitHubClick}
+          isLoading={isLoading}
+        />
+
+          <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
               邮箱地址

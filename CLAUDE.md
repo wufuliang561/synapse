@@ -11,7 +11,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Setup:**
 - `npm install` - Install dependencies
-- Create `.env.local` with `GEMINI_API_KEY=your_key_here`
+- Create `.env.local` with required environment variables:
+  - `GEMINI_API_KEY=your_key_here` (required for AI functionality)
+  - `VITE_SUPABASE_URL=your_supabase_url` (for database)
+  - `VITE_SUPABASE_ANON_KEY=your_anon_key` (for database)
+  - `SUPABASE_SERVICE_ROLE_KEY=your_service_role_key` (for server-side operations)
+
+**API Development:**
+- API routes located in `/api/` directory (Vercel Functions format)
+- Authentication endpoints: `/api/auth/login`, `/api/auth/register`, `/api/auth/verify`, `/api/auth/refresh`
+- User management endpoints: `/api/users/delete`, `/api/users/restore`
+- Functions have 30-second timeout limit (configured in vercel.json)
 
 ## Architecture Overview
 
@@ -19,8 +29,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - React 19 + TypeScript + Vite (ESM modules)
 - Google Gemini AI (@google/genai) with gemini-2.5-flash model
 - React Flow (@xyflow/react) for canvas visualization
+- Supabase (@supabase/supabase-js) for database and backend services
 - Tailwind CSS for styling
+- JWT-based email authentication with bcrypt for password hashing
 - No external state management - pure React useState
+- Vercel deployment with serverless functions
 
 **Core Data Model:**
 - `Topic` - Workspace container with branches array and currentBranchId
@@ -35,6 +48,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `Sidebar.tsx` - Topic management and selection
 - `MessageNode.tsx` - Custom React Flow node (BranchNodeComponent)
 - `BranchModal.tsx` - Branch creation modal
+- `AuthContext.tsx` - Authentication state management and JWT token handling
+- `ProtectedRoute.tsx` - Route-level authentication wrapper
 
 **State Architecture:**
 - Single state tree in App.tsx using useState hooks
@@ -80,3 +95,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Props drilling for callbacks (onSendMessage, onCreateBranch, onBranchClick)
 - Canvas nodes use custom BranchNodeData interface extending BranchNode
 - Message history inheritance ensures conversation continuity across branches
+
+**Authentication System:**
+- JWT-based email authentication with access/refresh token pattern
+- Supabase backend with user repository pattern
+- Auth state managed via React Context (AuthContext)
+- Protected routes require authentication
+- Token storage handled in browser localStorage
+- API endpoints in `/api/auth/` for login, register, verify, refresh
+- Email-only authentication (OAuth removed, but UI buttons preserved as placeholders)
+
+**Database Architecture:**
+- Supabase PostgreSQL database with TypeScript schema
+- Repository pattern for data access (`/lib/database/repositories/`)
+- Service layer for business logic (`/lib/database/services/`)
+- Client singleton pattern with environment-based configuration
+- Server-side operations use service role key for admin access
+
+**File Structure:**
+- `/components/` - React components organized by feature
+- `/api/` - Vercel serverless functions for backend functionality
+- `/lib/` - Utility functions and database layer
+  - `/lib/auth/` - Authentication utilities, validators, JWT handling
+  - `/lib/database/` - Supabase client, repositories, services, types
+- `/constants.ts` - Mock data and configuration
+- `/types.ts` - Core application TypeScript interfaces
+- Root level: App.tsx, index.tsx, vite config, etc.
